@@ -11,66 +11,78 @@
  * Learn more at https://developers.cloudflare.com/workers/
  */
 
+// Definisci gli origin permessi. Per maggiore sicurezza, specifica solo il tuo dominio AlterVista.
+// Usa '*' solo per test, ma non è raccomandato in produzione.
+const ALLOWED_ORIGIN = 'https://eremofratefrancesco.altervista.org';
+
+// Funzione helper per aggiungere le intestazioni CORS
+function addCorsHeaders(response: Response): Response {
+  response.headers.set('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS'); // Metodi permessi
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Intestazioni permesse
+  // response.headers.set('Access-Control-Max-Age', '86400'); // Opzionale: per quanto tempo il browser può cachare la risposta preflight
+  return response;
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Gestione della richiesta preflight OPTIONS
+    if (request.method === 'OPTIONS') {
+      const headers = new Headers();
+      headers.set('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+      headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      // headers.set('Access-Control-Max-Age', '86400'); // Cache preflight per 1 giorno
+      return new Response(null, { status: 204, headers });
+    }
+
     if (request.method !== 'POST') {
-      return new Response('Expected POST request', { status: 405 });
+      let response = new Response('Expected POST request', { status: 405 });
+      return addCorsHeaders(response); // Aggiungi header CORS anche alle risposte di errore
     }
 
     let inputs;
     try {
       const requestData = await request.json();
       if (!requestData.prompt || typeof requestData.prompt !== 'string' || requestData.prompt.trim() === '') {
-        return new Response(JSON.stringify({ success: false, error: 'Prompt is missing or invalid in request body' }), {
+        let response = new Response(JSON.stringify({ success: false, error: 'Prompt is missing or invalid in request body' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
+        return addCorsHeaders(response);
       }
-      // Aggiungiamo dettagli al prompt per migliorare la resa come icona
-      // e per cercare di ottenere uno sfondo trasparente o bianco se il modello lo supporta.
       inputs = {
         prompt: requestData.prompt + ", icon style, simple vector, clean lines, on a white background",
-        // Il modello @cf/stabilityai/stable-diffusion-xl-base-1.0 genera immagini 1024x1024.
-        // Non è possibile specificare dimensioni più piccole direttamente per questo modello tramite Workers AI.
-        // L'immagine verrà ridimensionata dal browser per l'anteprima.
-        // num_steps: 20, // Puoi sperimentare con meno steps per generazioni più veloci. Default è solitamente 50.
       };
     } catch (e) {
-      return new Response(JSON.stringify({ success: false, error: 'Invalid JSON in request body' }), {
+      let response = new Response(JSON.stringify({ success: false, error: 'Invalid JSON in request body' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+      return addCorsHeaders(response);
     }
 
     try {
       console.log(`Worker AI: Ricevuto prompt: ${inputs.prompt}`);
-      const responseBlob = await env.AI.run(
-        "@cf/stabilityai/stable-diffusion-xl-base-1.0", // Modello che genera immagini 1024x1024
+      const imageResponseBlob = await env.AI.run(
+        "@cf/stabilityai/stable-diffusion-xl-base-1.0",
         inputs
       );
 
-      // La risposta da env.AI.run per i modelli text-to-image è direttamente lo stream dei byte dell'immagine.
-      return new Response(responseBlob, {
+      let response = new Response(imageResponseBlob, {
         headers: {
-          "content-type": "image/png", // L'output di questo modello è PNG
+          "content-type": "image/png",
         },
       });
+      return addCorsHeaders(response); // Aggiungi header CORS alla risposta con l'immagine
 
     } catch (e: any) {
       console.error("Cloudflare Worker AI Model Run Error:", e);
-      return new Response(JSON.stringify({ success: false, error: `Error running AI model: ${e.message || e.toString()}` }), {
+      let response = new Response(JSON.stringify({ success: false, error: `Error running AI model: ${e.message || e.toString()}` }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       });
+      return addCorsHeaders(response);
     }
   },
 } satisfies ExportedHandler<Env>;
-
-// Assicurati che il tuo file worker-configuration.d.ts (o generato da `wrangler types`)
-// definisca correttamente l'interfaccia Env con il binding AI:
-//
-// declare global {
-//   interface Env {
-//     AI: Ai;
-//   }
-// }
