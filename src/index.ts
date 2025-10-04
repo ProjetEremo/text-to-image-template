@@ -13,7 +13,7 @@
 
 // Definisci gli origin permessi. Per maggiore sicurezza, specifica solo il tuo dominio AlterVista.
 // Usa '*' solo per test, ma non è raccomandato in produzione.
-const ALLOWED_ORIGIN = 'https://eremofratefrancesco.altervista.org';
+const ALLOWED_ORIGIN = 'https://eremofratefrancesco.it';
 
 // Funzione helper per aggiungere le intestazioni CORS
 function addCorsHeaders(response: Response): Response {
